@@ -4,21 +4,19 @@ import cv2
 from PIL import Image, ImageOps
 import io
 
-st.title("線を太く／細くするツール（透明PNG対応）")
+st.title("STROKE MODIFIER")
 
 uploaded_file = st.file_uploader("画像をアップロードしてください", type=["png", "jpg", "jpeg"])
 px = st.slider("変更ピクセル数（マイナスで細く・プラスで太く）", min_value=-20, max_value=20, value=0)
+make_white_transparent = st.checkbox("透過出力", value=True)
 
 if uploaded_file:
-    # RGBAで読み込む
+    # RGBAで読み込み、透明部分を白背景で埋める
     image_rgba = Image.open(uploaded_file).convert("RGBA")
-    image_np = np.array(image_rgba)
-
-    # アルファを使って「透明＝白」として合成（白背景）
     background = Image.new("RGBA", image_rgba.size, (255, 255, 255, 255))
-    image_opaque = Image.alpha_composite(background, image_rgba).convert("L")  # モノクロ化
+    image_opaque = Image.alpha_composite(background, image_rgba).convert("L")  # 白背景で合成しモノクロに
 
-    # 黒背景で反転して加工
+    # 線画処理（反転→膨張or収縮→再反転）
     inverted = ImageOps.invert(image_opaque)
     img_np = np.array(inverted)
 
@@ -32,8 +30,18 @@ if uploaded_file:
         else:
             processed_np = cv2.erode(img_np, kernel, iterations=1)
 
-    result_np = 255 - processed_np
-    result_img = Image.fromarray(result_np).convert("RGB")  # 背景は白、透過なしでOK
+    final_gray = 255 - processed_np  # 最終グレースケール画像（線が黒）
+
+    if make_white_transparent:
+        # アルファチャンネルを白さで作成（白=255, 黒=0）
+        alpha_channel = 255 - final_gray
+        rgb_image = np.zeros((final_gray.shape[0], final_gray.shape[1], 3), dtype=np.uint8)
+        rgb_image[:, :, :] = final_gray[:, :, None]  # グレースケール→RGB
+        result_rgba = np.dstack([rgb_image, alpha_channel])
+        result_img = Image.fromarray(result_rgba, mode="RGBA")
+    else:
+        # 白背景のまま出力
+        result_img = Image.fromarray(final_gray).convert("RGB")
 
     # 表示（横並び）
     col1, col2 = st.columns(2)
