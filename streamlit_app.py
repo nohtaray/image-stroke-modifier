@@ -13,7 +13,7 @@ uploaded_files = st.file_uploader(
 )
 
 
-def process_image_orig(image_file, px, make_white_transparent):
+def process_image_orig(image_file, px, make_white_transparent, noise_reduction=0):
     # RGBAで読み込み、透明部分を白背景で埋める
     image_rgba = Image.open(image_file).convert("RGBA")
     background = Image.new("RGBA", image_rgba.size, (255, 255, 255, 255))
@@ -22,6 +22,10 @@ def process_image_orig(image_file, px, make_white_transparent):
     # 線画処理（反転→膨張or収縮→再反転）
     inverted = ImageOps.invert(image_opaque)
     img_np = np.array(inverted)
+
+    # ノイズ除去
+    if noise_reduction > 0:
+        img_np = cv2.fastNlMeansDenoising(img_np, None, h=noise_reduction)
 
     kernel_size = abs(px)
     if kernel_size == 0:
@@ -46,7 +50,7 @@ def process_image_orig(image_file, px, make_white_transparent):
 
     return image_rgba, result_img
 
-def process_image_only_stroke(image_file, px, black_threshold):
+def process_image_only_stroke(image_file, px, black_threshold, noise_reduction=0):
     # RGBAで読み込み、透明部分を白背景で埋める
     image_rgba = Image.open(image_file).convert("RGBA")
     background = Image.new("RGBA", image_rgba.size, (255, 255, 255, 255))
@@ -55,6 +59,10 @@ def process_image_only_stroke(image_file, px, black_threshold):
     # 線画処理（反転→膨張or収縮→再反転）
     inverted = ImageOps.invert(image_opaque)
     img_np = np.array(inverted)
+
+    # ノイズ除去
+    if noise_reduction > 0:
+        img_np = cv2.fastNlMeansDenoising(img_np, None, h=noise_reduction)
 
     kernel_size = abs(px)
     if kernel_size == 0:
@@ -79,21 +87,32 @@ def process_image_only_stroke(image_file, px, black_threshold):
     img_array[mask, 1] = final_gray[mask] # Only modify RGB channels
     img_array[mask, 2] = final_gray[mask] # Only modify RGB channels
 
-    # alpha_channel = np.array(image_rgba)[:, :, 3]
-    # alpha_channel[mask] = 0
-    # result_img = Image.fromarray(np.dstack([img_array, alpha_channel]))
-
     img_array[:, :, 3] = np.array(image_rgba)[:, :, 3]
     img_array[mask, 3] = 255 - final_gray[mask]
     result_img = Image.fromarray(img_array)
 
     return image_rgba, result_img
 
-def process_image_only_stroke2(image_file, px):
+def process_image_only_stroke2(image_file, px, noise_reduction=0):
     # RGBAで読み込み、透明部分を白背景で埋める
     image_rgba = Image.open(image_file).convert("RGBA")
 
     img_np = 255 - np.array(image_rgba)
+
+    # ノイズ除去
+    if noise_reduction > 0:
+        # RGBチャンネルとアルファチャンネルを分離
+        rgb_channels = img_np[:, :, :3]
+        alpha_channel = img_np[:, :, 3]
+
+        # RGBチャンネルに対してノイズ除去を適用
+        denoised_rgb = cv2.fastNlMeansDenoisingColored(rgb_channels, None, h=noise_reduction, hColor=noise_reduction)
+
+        # アルファチャンネルに対してノイズ除去を適用
+        denoised_alpha = cv2.fastNlMeansDenoising(alpha_channel, None, h=noise_reduction)
+
+        # 結果を結合
+        img_np = np.dstack([denoised_rgb, denoised_alpha])
 
     kernel_size = abs(px)
     if kernel_size == 0:
@@ -115,20 +134,31 @@ if uploaded_files:
     for idx, file in enumerate(uploaded_files):
         with st.expander(f"画像 {idx + 1}: {file.name}", expanded=True):
             # 個別設定
-            px = st.slider(f"変更ピクセル数", min_value=-20, max_value=20, value=4, key=f"px_{idx}")
-            # make_transparent = st.checkbox(f"透過出力", value=False, key=f"transparent_{idx}")
             keep_colors = st.checkbox(f"品質を落として色情報を保持する", value=False, key=f"keep_colors_{idx}")
+            if keep_colors:
+                black_threshold = st.slider(f"黒色のしきい値", min_value=0.0, max_value=1.0, value=0.8, key=f"black_threshold{idx}")
+            noise_level = st.selectbox(
+                f"ノイズ除去",
+                options=["なし", "弱", "中", "強"],
+                index=2,  # デフォルトで「中」を選択
+                key=f"noise_{idx}"
+            )
+            noise_reduction = {
+                "なし": 0,
+                "弱": 5,
+                "中": 10,
+                "強": 20
+            }[noise_level]
+            px = st.slider(f"変更ピクセル数", min_value=-20, max_value=20, value=4, key=f"px_{idx}")
 
             # 処理
             if keep_colors:
-                black_threshold = st.slider(f"黒色のしきい値", min_value=0.0, max_value=1.0, value=0.8, key=f"black_threshold{idx}")
                 if px > 0:
-                    orig_img, result_img = process_image_only_stroke(file, px, black_threshold)
-                    # orig_img, result_img = process_image_only_stroke2(file, px)
+                    orig_img, result_img = process_image_only_stroke(file, px, black_threshold, noise_reduction)
                 else:
-                    orig_img, result_img = process_image_only_stroke2(file, px)
+                    orig_img, result_img = process_image_only_stroke2(file, px, noise_reduction)
             else:
-                orig_img, result_img = process_image_orig(file, px, make_white_transparent=False)
+                orig_img, result_img = process_image_orig(file, px, make_white_transparent=False, noise_reduction=noise_reduction)
 
             # 表示
             col1, col2 = st.columns(2)
