@@ -173,7 +173,7 @@ if uploaded_files:
             st.download_button(
                 label="処理後画像をダウンロード",
                 data=buf.getvalue(),
-                file_name=f"{file.name.rsplit('.', 1)[0]}_processed.png",
+                file_name=f"{file.name.rsplit('.', 1)[0]}_{px}px_noise{noise_level}{'_keepcolor' if keep_colors else ''}{f'_th{black_threshold*100}' if keep_colors else ''}.png",
                 mime="image/png",
                 key=f"download_{idx}"
             )
