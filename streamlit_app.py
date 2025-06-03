@@ -55,7 +55,7 @@ def process_image_orig(image_file, px, make_white_transparent, noise_reduction=0
     return image_rgba, result_img
 
 
-def process_image_only_stroke(image_file, px, black_threshold, noise_reduction=0):
+def process_image_only_stroke(image_file, px, black_threshold, noise_reduction=0, fill_color="#000000"):
     # RGBAで読み込み、透明部分を白背景で埋める
     image_rgba = Image.open(image_file).convert("RGBA")
     background = Image.new("RGBA", image_rgba.size, (255, 255, 255, 255))
@@ -90,9 +90,14 @@ def process_image_only_stroke(image_file, px, black_threshold, noise_reduction=0
     # threshold より黒いところだけを広げる
     threshold = 1 - black_threshold
     mask = final_gray < 255 * threshold
-    img_array[mask, 0] = final_gray[mask]  # Only modify RGB channels
-    img_array[mask, 1] = final_gray[mask]  # Only modify RGB channels
-    img_array[mask, 2] = final_gray[mask]  # Only modify RGB channels
+
+    # Convert hex color to RGB
+    fill_color_rgb = tuple(int(fill_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+
+    # Apply the selected color to dark areas
+    img_array[mask, 0] = fill_color_rgb[0]  # R channel
+    img_array[mask, 1] = fill_color_rgb[1]  # G channel
+    img_array[mask, 2] = fill_color_rgb[2]  # B channel
 
     img_array[:, :, 3] = np.array(image_rgba)[:, :, 3]
     img_array[mask, 3] = 255 - final_gray[mask]
@@ -167,12 +172,18 @@ if uploaded_files:
             px = st.slider(
                 f"変更ピクセル数", min_value=-20, max_value=20, value=4, key=f"px_{idx}"
             )
+            if keep_colors:
+                fill_color = st.color_picker(
+                    f"変更後の線の色",
+                    value="#000000",
+                    key=f"fill_color_{idx}"
+                )
 
             # 処理
             if keep_colors:
-                if px > 0:
+                if px >= 0:
                     orig_img, result_img = process_image_only_stroke(
-                        file, px, black_threshold, noise_reduction
+                        file, px, black_threshold, noise_reduction, fill_color
                     )
                 else:
                     orig_img, result_img = process_image_only_stroke2(
