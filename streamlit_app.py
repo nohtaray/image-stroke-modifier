@@ -13,9 +13,14 @@ uploaded_files = st.file_uploader(
 )
 
 
-def process_image_orig(image_file, px, make_white_transparent, noise_reduction=0):
-    # RGBAで読み込み、透明部分を白背景で埋める
+def process_image_orig(image_file, px, keep_transparent, noise_reduction=0):
+    # RGBAで読み込み
     image_rgba = Image.open(image_file).convert("RGBA")
+
+    # 元画像のアルファチャンネルを保存
+    original_alpha = np.array(image_rgba)[:, :, 3]
+
+    # 透明部分を白背景で埋める
     background = Image.new("RGBA", image_rgba.size, (255, 255, 255, 255))
     image_opaque = Image.alpha_composite(background, image_rgba).convert(
         "L"
@@ -41,15 +46,22 @@ def process_image_orig(image_file, px, make_white_transparent, noise_reduction=0
 
     final_gray = 255 - processed_np  # 最終グレースケール画像（線が黒）
 
-    if make_white_transparent:
+    # RGB画像を作成
+    rgb_image = np.zeros(
+        (final_gray.shape[0], final_gray.shape[1], 3), dtype=np.uint8
+    )
+    rgb_image[:, :, :] = final_gray[:, :, None]
+
+    if keep_transparent:
+        # 処理後の画像：黒い部分（線）は不透明、白い部分は透明
         alpha_channel = 255 - final_gray  # 黒ほど不透明
-        rgb_image = np.zeros(
-            (final_gray.shape[0], final_gray.shape[1], 3), dtype=np.uint8
-        )
-        rgb_image[:, :, :] = final_gray[:, :, None]
+        # 元画像で不透明だった部分は不透明のまま保持（元々白かった部分や黒い線は不透明に）
+        # 元画像で透明だった部分は、処理後の黒さに応じて透明度を決定
+        alpha_channel = np.maximum(alpha_channel, original_alpha)
         result_rgba = np.dstack([rgb_image, alpha_channel])
         result_img = Image.fromarray(result_rgba, mode="RGBA")
     else:
+        # 白を透明にしない場合は、RGB形式で出力（すべて不透明）
         result_img = Image.fromarray(final_gray).convert("RGB")
 
     return image_rgba, result_img
@@ -162,6 +174,10 @@ if uploaded_files:
                     value=0.8,
                     key=f"black_threshold{idx}",
                 )
+            else:
+                keep_transparent = st.checkbox(
+                    f"透明部分を維持する", value=True, key=f"keep_transparent_{idx}"
+                )
             noise_level = st.selectbox(
                 f"ノイズ除去",
                 options=["なし", "弱", "中", "強"],
@@ -193,7 +209,7 @@ if uploaded_files:
                 orig_img, result_img = process_image_orig(
                     file,
                     px,
-                    make_white_transparent=False,
+                    keep_transparent=keep_transparent,
                     noise_reduction=noise_reduction,
                 )
 
